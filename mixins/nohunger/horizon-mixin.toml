@@ -1,0 +1,59 @@
+[mod]
+id = "nohunger"
+version = "0.1.0"
+priority = 100
+
+# The commit it was tested on: it patches the client's hunger and tick sources
+# directly, so a Horizon change there needs a re-check.
+[compatibility]
+horizon_revision = "2ebf00a0281c592f79191e76fce0e7d522c6f425"
+
+# The mod's brain: pure standard library, no game types, tested on its own.
+[[module]]
+id = "runtime"
+file = "crates/horizon-client/src/game.rs"
+name = "nohunger"
+source = "runtime.rs"
+
+# The gate lives with the food tick, which the window's game module reaches
+# through the library crate (the client's game module is a different crate
+# than hunger's — the runtime could not share the bit the drain reads).
+[[module]]
+id = "gate"
+file = "crates/horizon-client/src/hunger.rs"
+name = "nohunger_gate"
+source = "gate.rs"
+visibility = "pub"
+
+# Once a tick, on every Game in the process: only the window's writes the
+# gate (its switch is the live one; the integrated server's Game holds the
+# world-open copy of the mods list and must not write a stale value).
+[[injection]]
+id = "tick"
+kind = "HEAD"
+target = "horizon_client::game::native_hooks::Game<'_>::native_tick"
+helper = "tick.rs"
+bindings = [
+  { name = "game", ty = "&mut crate::game::Game<'_>", value = "&mut *self" },
+]
+
+# The food tick itself — the drain, the regeneration that costs hunger and
+# the starvation — held while the gate asks. Exhaustion keeps accruing, and
+# the first tick after the switch turns off processes it at once, as the
+# original's WARNING said.
+[[injection]]
+id = "hold"
+kind = "HEAD"
+cancellable = true
+target = "horizon_client::hunger::PlayerMotion::food_tick"
+helper = "hold.rs"
+
+# The row in Options > Mods: a plain toggle, so no keys.
+[[injection]]
+id = "list"
+kind = "HEAD"
+target = "horizon_client::game::native_hooks::Game<'_>::native_mods"
+helper = "list.rs"
+bindings = [
+  { name = "mods", ty = "&mut Vec<crate::game::native_hooks::NativeMod>", value = "&mut *mods" },
+]
